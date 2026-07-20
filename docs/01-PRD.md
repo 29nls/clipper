@@ -3101,6 +3101,8 @@ Indonesia
 
 English
 
+> **Catatan Strategi Bahasa:** PRD menggunakan Bahasa Indonesia sebagai bahasa utama karena target pasar primary adalah Indonesia. Dokumen teknis (SRS, ERD, Database Schema, API, Architecture) menggunakan Bahasa Inggris untuk memudahkan developer internasional dan dokumentasi teknis. Platform UI mendukung kedua bahasa (ID/EN) dengan deteksi otomatis.
+
 ---
 
 ## NFR-I18N-002
@@ -4485,8 +4487,11 @@ AI Orchestrator
 Credit
 : Satuan konsumsi fitur AI.
 
+OpenCode
+: Internal AI provider codename yang digunakan untuk platform AI inference custom. Bukan nama provider publik — digunakan sebagai placeholder untuk sistem AI internal atau partner eksklusif.
+
 Provider
-: Penyedia layanan AI (misalnya OpenRouter, NVIDIA).
+: Penyedia layanan AI (misalnya OpenRouter, NVIDIA, OpenCode).
 
 Job
 : Unit kerja asynchronous yang diproses oleh worker.
@@ -4496,7 +4501,31 @@ Workspace
 
 ---
 
-# 23. Approval
+# 23. Platform & OS Support Roadmap
+
+## 23.1 Desktop Platform Support
+
+MVP
+
+Windows 10
+
+Windows 11
+
+Future
+
+macOS (Post-MVP, Phase 5)
+
+Linux (Phase 6)
+
+## 23.2 Mobile Support (Future)
+
+iOS (React Native)
+
+Android (React Native)
+
+---
+
+# 24. Approval
 
 Status
 
@@ -4506,6 +4535,4 @@ Owner
 
 Product Management
 
-Next Document
-
-02-SRS.md
+**Next Document:** [02-SRS.md](02-SRS.md)

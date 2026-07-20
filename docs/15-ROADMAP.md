@@ -177,7 +177,9 @@ AI ORCHESTRATOR
   □ Provider abstraction layer (IAIProvider interface)
   □ OpenRouter provider implementation
   □ NVIDIA provider implementation
-  □ OpenCode provider implementation
+  □ OpenCode provider implementation (*)
+  
+  > **(*) OpenCode** adalah internal AI provider codename. Lihat definisi lengkap di [PRD Glossary](01-PRD.md#22-glossary).
   □ Provider routing (rule engine)
   □ Automatic / Manual / Hybrid selection
   □ Health monitoring (60s interval)

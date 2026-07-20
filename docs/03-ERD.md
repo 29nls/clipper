@@ -1785,13 +1785,15 @@ Examples
 
 OpenRouter
 
-OpenCode
+OpenCode (*)
 
 NVIDIA
 
 OpenAI
 
 Gemini
+
+> **(*) OpenCode** adalah internal AI provider codename. Lihat definisi lengkap di [PRD Glossary](01-PRD.md#22-glossary).
 
 Claude
 
@@ -2417,9 +2419,11 @@ Thumbnail
 
 ↓
 
-OpenCode
+OpenCode (*)
 
 Table : ai_experiments
+
+> **(*) OpenCode** — lihat definisi di [PRD Glossary](01-PRD.md#22-glossary).
 Description
 
 A/B Testing AI.
@@ -2481,3 +2485,7 @@ AI_JOB ||--o{ AI_METRIC : records
 AI_JOB ||--o{ AI_COST : charges
 
 AI_JOB ||--o{ AI_PROMPT_EXECUTION : executes
+
+---
+
+**Next Document:** [04-DATABASE-SCHEMA.md](04-DATABASE-SCHEMA.md)

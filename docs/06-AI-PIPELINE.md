@@ -288,7 +288,9 @@ interface IAIProvider {
 |----------|------|------|-----------|
 | OpenRouter | `openrouter` | LLM Gateway | Multi-model, cost-effective |
 | NVIDIA | `nvidia` | AI Platform | GPU-accelerated, voice/vision |
-| OpenCode | `opencode` | Code/LLM | Fast inference |
+| OpenCode (*) | `opencode` | Code/LLM | Fast inference |
+
+> **(*) OpenCode** adalah internal AI provider codename yang digunakan untuk platform AI inference custom platform ini. Bukan nama provider publik — digunakan sebagai placeholder untuk sistem AI internal atau partner eksklusif. Lihat definisi lengkap di [PRD Glossary](01-PRD.md#22-glossary).
 
 ## 3.3 Future Providers
 

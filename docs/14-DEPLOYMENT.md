@@ -341,7 +341,7 @@ R2_BUCKET=media
 # ── AI PROVIDERS ─────────────────────────────────────
 OPENROUTER_API_KEY=
 NVIDIA_API_KEY=
-OPENCODE_API_KEY=
+OPENCODE_API_KEY=       # Internal AI provider codename — lihat PRD Glossary
 
 # ── PAYMENT ──────────────────────────────────────────
 STRIPE_SECRET_KEY=

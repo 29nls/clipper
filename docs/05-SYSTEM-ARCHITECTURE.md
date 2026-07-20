@@ -880,8 +880,10 @@ Phase 3 (Scale):
 | Component | Technology |
 |-----------|-----------|
 | AI Gateway | Custom Node.js service |
-| Providers | OpenRouter, NVIDIA, OpenCode |
+| Providers | OpenRouter, NVIDIA, OpenCode (*) |
 | Speech-to-Text | Provider-dependent (Whisper family) |
+
+> **(*) OpenCode** adalah internal AI provider codename untuk platform AI inference custom. Lihat definisi lengkap di [PRD Glossary](01-PRD.md#22-glossary).
 | LLM | Provider-dependent (Qwen, Llama, etc.) |
 | Vector DB | pgvector (PostgreSQL extension) |
 

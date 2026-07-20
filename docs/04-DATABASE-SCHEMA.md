@@ -101,7 +101,7 @@ enum UserStatus {
 
 enum ProviderType {
   openrouter
-  opencode
+  opencode    // Internal AI provider codename — lihat PRD Glossary
   nvidia
   openai
   anthropic
@@ -2698,7 +2698,8 @@ npx prisma db seed
 Initial seed includes:
 - Default subscription plans (Free, Starter, Pro, Business, Enterprise)
 - Default render presets (YouTube, TikTok, Instagram, Custom)
-- Default AI providers (OpenRouter, NVIDIA, OpenCode)
+- Default AI providers (OpenRouter, NVIDIA, OpenCode)  
+  > **(*) OpenCode** adalah internal AI provider codename. Lihat definisi lengkap di [PRD Glossary](01-PRD.md#22-glossary).
 - Default subtitle styles and templates
 - Default notification templates
 - System feature flags

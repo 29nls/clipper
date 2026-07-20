@@ -55,7 +55,20 @@ Desktop Application adalah client utama untuk **editing cepat dan rendering loka
 │ Analytics Dashboard    │    ✓     │    ✓     │
 │ Notification Center    │    ✓     │    ✓     │
 └────────────────────────┴──────────┴──────────┘
+
+> **Catatan Platform:** MVP hanya mendukung **Windows 10/11**.
+> Dukungan **macOS** dan **Linux** direncanakan untuk post-MVP (lihat PRD section 23).
 ```
+
+## Supported Platforms
+
+| Platform | MVP | Post-MVP |
+|----------|-----|----------|
+| Windows 10 | ✅ | ✅ |
+| Windows 11 | ✅ | ✅ |
+| macOS (Intel) | ❌ | Phase 5 |
+| macOS (Apple Silicon) | ❌ | Phase 5 |
+| Linux (Ubuntu/Debian) | ❌ | Phase 6 |
 
 ---
 

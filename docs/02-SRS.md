@@ -77,7 +77,13 @@ Produk memungkinkan pengguna:
 - Translation
 - Viral Detection
 - Timeline Editing
-- Rendering
+-Render
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing
 - Publishing
 - Analytics
 
@@ -361,11 +367,35 @@ Storage tersedia.
 
 ---
 
-## Rendering
+##Render
 
-- Local Render
-- Cloud Render
-- Batch Render
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing
+
+- LocalRender
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+
+- CloudRender
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+
+- BatchRender
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+
 
 ---
 
@@ -387,7 +417,13 @@ Storage tersedia.
 ## Analytics
 
 - Usage
-- Rendering
+-Render
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing
 - AI Cost
 
 # 7 User Characteristics
@@ -458,7 +494,13 @@ AI Provider management
 
  Upload
 
- Rendering
+Render
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing
 
  Analytics
 
@@ -1741,15 +1783,13 @@ Abstract Payment Gateway
 
 MVP
 
-Manual Configuration
-
-Future
-
-Stripe
+Stripe (primary)
 
 Midtrans
 
 Xendit
+
+Future
 
 PayPal
 
@@ -1888,7 +1928,13 @@ Preview
 
 30 FPS
 
-GPU Rendering
+GPURender
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing
 
 Supported
 
@@ -2362,7 +2408,13 @@ Configurable per AI task.
 
 ---
 
-# 13.6 Rendering State
+# 13.6Render
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing State
 
 ```
 
@@ -2764,7 +2816,13 @@ Completed
 
 ---
 
-# 14.5 Rendering
+# 14.5Render
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing
 
 Project
 
@@ -2965,7 +3023,13 @@ Analytics
 
 ✓ AI Cost
 
-✓ Rendering
+✓Render
+
+---
+
+**Next Document:** [03-ERD.md](03-ERD.md)
+
+ing
 
 ---
 
