@@ -1,6 +1,6 @@
 # 🏗️ Architecture Diagrams — AI Video Clipper Platform
 
-**Version:** 1.0.0  
+**Version:** 1.1.0  
 **Reference:** PRD v1.0, SRS v1.0, System Architecture v1.0
 
 > Diagram visual interaktif menggunakan **Mermaid.js**.  
@@ -23,6 +23,11 @@
 | 8 | [Billing & Credit System](#8-billing--credit-system) | Alur monetisasi |
 | 9 | [Deployment & CI/CD Architecture](#9-deployment--cicd-architecture) | Pipelines & blue-green |
 | 10 | [Database Entity Relationships](#10-database-entity-relationships) | ERD ringkas antar domain |
+| 11 | [AI Orchestrator — Internal Architecture & State Machine](#11-ai-orchestrator--internal-architecture--state-machine) | Component detail + job states |
+| 12 | [Auth Service — Internal Flows](#12-auth-service--internal-flows) | Register, Login, Token, Session |
+| 13 | [Billing Service — Lifecycle & Ledger](#13-billing-service--lifecycle--ledger) | Subscription, Credit, Invoice |
+| 14 | [Render & Publish Service — State Machines](#14-render--publish-service--state-machines) | Render pipeline, publish flow |
+| 15 | [Admin Panel — Modules & Data Flow](#15-admin-panel--modules--data-flow) | User, AI, Billing, Config mgmt |
 
 ---
 
@@ -578,7 +583,7 @@ flowchart TD
     classDef refund fill:#ef4444,color:#fff,stroke:#dc2626,stroke-width:2px
     classDef db fill:#6b7280,color:#fff,stroke:#4b5563,stroke-width:1px
 
-    USER(("👤 User")):::plan
+    USER(( "👤 User" )):::plan
 
     subgraph PLANS [📋 Subscription Plans]
         FREE["🆓 Free<br/>100 credits/mo<br/>5 jobs/day · 720p"]:::plan
@@ -892,16 +897,554 @@ erDiagram
 
 ---
 
+## 11. AI Orchestrator — Internal Architecture & State Machine
+
+```mermaid
+flowchart TD
+    %% ── STYLE ──
+    classDef engine fill:#6366f1,color:#fff,stroke:#4f46e5,stroke-width:2px
+    classDef flow fill:#06b6d4,color:#fff,stroke:#0891b2,stroke-width:1px
+    classDef state fill:#f59e0b,color:#fff,stroke:#d97706,stroke-width:2px
+    classDef terminal fill:#10b981,color:#fff,stroke:#059669,stroke-width:2px
+    classDef error fill:#ef4444,color:#fff,stroke:#dc2626,stroke-width:2px
+    classDef cache fill:#8b5cf6,color:#fff,stroke:#7c3aed,stroke-width:1px
+    classDef decision fill:#f59e0b,color:#fff,stroke:#d97706,stroke-width:1px
+
+    subgraph ORCH_INTERNALS [🧠 AI Orchestrator — Internal Engines]
+        ROUTER["🔀 Router Engine<br/>• Select provider via rule engine<br/>• Check capability matrix<br/>• Apply user preferences<br/>• Fallback chain"]:::engine
+
+        PROMPT["📝 Prompt Engine<br/>• Load prompt template<br/>• Inject {{variables}}<br/>• Version control<br/>• A/B test experiments"]:::engine
+
+        CREDIT["💰 Credit Engine<br/>• Estimate cost before exec<br/>• Validate sufficient credits<br/>• Reserve credits<br/>• Deduct on completion<br/>• Refund on failure"]:::engine
+
+        CACHE["💾 Cache Engine<br/>• Hash input parameters<br/>• L1: Redis (fast)<br/>• L2: DB (persistent)<br/>• TTL per operation type"]:::cache
+
+        FALLBACK["🔄 Fallback Manager<br/>• Retry with backoff<br/>• Switch provider<br/>• Dead letter on max retry"]:::engine
+
+        HEALTH["❤️ Health Monitor<br/>• Check every 60s<br/>• Track error rate<br/>• Status: healthy→warning→degraded→offline"]:::engine
+
+        METRICS["📊 Metrics Collector<br/>• Latency · Tokens · Cost<br/>• Cache hit rate<br/>• Provider market share<br/>• Queue depth"]:::engine
+    end
+
+    subgraph ORCH_JOB_FLOW [📋 Job Execution Flow]
+        RECEIVE["📥 Receive Request<br/>From API / Worker"]:::flow
+        VALIDATE["🔍 Validate<br/>• Credits sufficient?<br/>• Rate limits OK?<br/>• Job dependencies met?"]:::flow
+        CACHE_CHECK["💾 Cache Check<br/>• Hash input → Redis<br/>• Hit → return cached"]:::cache
+        ESTIMATE["📊 Estimate Cost<br/>• Tokens / Duration / Frames<br/>• Reserve credits"]:::flow
+        ROUTE_STEP["🔀 Route to Provider<br/>• Auto / Manual / Hybrid"]:::engine
+        EXECUTE["⚡ Execute AI Call<br/>• Send to provider<br/>• Stream progress<br/>• Monitor timeout"]:::flow
+        HANDLE_RESULT["📦 Handle Result<br/>• Validate response<br/>• Store to DB<br/>• Deduct credits<br/>• Record metrics"]:::flow
+    end
+
+    subgraph JOB_STATES [🔄 AI Job State Machine]
+        CREATED["🆕 Created<br/>Job record in DB"]:::state
+        QUEUED["📨 Queued<br/>Added to BullMQ"]:::state
+        WAITING["⏳ Waiting Worker<br/>In queue, no worker"]:::state
+        RUNNING["⚡ Running<br/>Worker picked up"]:::state
+        RETRY["🔁 Retry<br/>Exponential backoff<br/>Max 3 attempts"]:::state
+        COMPLETED["✅ Completed<br/>Success"]:::terminal
+        FAILED["❌ Failed<br/>After all retries"]:::error
+        CANCELLED["⛔ Cancelled<br/>By user / system"]:::error
+        ARCHIVED["📦 Archived<br/>After retention TTL"]:::terminal
+    end
+
+    subgraph PROVIDER_STATES [💡 AI Provider State Machine]
+        P_HEALTHY["✅ Healthy<br/>Latency < threshold<br/>Error rate < 1%"]:::terminal
+        P_WARNING["⚠️ Warning<br/>Latency elevated<br/>Error rate 1-5%"]:::state
+        P_DEGRADED["🔶 Degraded<br/>Latency very high<br/>Error rate 5-15%"]:::state
+        P_OFFLINE["🔴 Offline<br/>No response<br/>Error rate > 15%"]:::error
+        P_RECOVERED["🔄 Recovered<br/>Gradual restore"]:::state
+    end
+
+    RECEIVE --> VALIDATE
+    VALIDATE --> CACHE_CHECK
+    CACHE_CHECK -->|"❌ Miss"| ESTIMATE
+    CACHE_CHECK -->|"✅ Hit"| RETURN_CACHE["↩️ Return Cached Result"]:::cache
+    ESTIMATE --> ROUTE_STEP
+    ROUTE_STEP --> EXECUTE
+    EXECUTE -->|"⏱️ Timeout"| FALLBACK
+    FALLBACK -.->|"Retry"| EXECUTE
+    FALLBACK -.->|"Switch provider"| ROUTE_STEP
+    EXECUTE --> HANDLE_RESULT
+
+    %% State transitions
+    CREATED --> QUEUED
+    QUEUED --> WAITING
+    WAITING --> RUNNING
+    RUNNING -->|"Success"| COMPLETED
+    RUNNING -->|"Failure"| RETRY
+    RETRY -->|"Max 3 reached"| FAILED
+    RETRY --> RUNNING
+    CREATED -->|"User cancels"| CANCELLED
+    QUEUED -->|"User cancels"| CANCELLED
+    WAITING -->|"User cancels"| CANCELLED
+    RUNNING -->|"User cancels"| CANCELLED
+    FAILED --> ARCHIVED
+    COMPLETED --> ARCHIVED
+    CANCELLED --> ARCHIVED
+
+    %% Provider states
+    P_HEALTHY -->|"Latency ↑ or errors ↑"| P_WARNING
+    P_WARNING -->|"Continues"| P_DEGRADED
+    P_DEGRADED -->|"No response"| P_OFFLINE
+    P_OFFLINE -->|"Recovers"| P_RECOVERED
+    P_RECOVERED --> P_HEALTHY
+    P_WARNING -->|"Returns to normal"| P_HEALTHY
+    P_DEGRADED -->|"Returns to normal"| P_HEALTHY
+
+    %% Engine usage
+    ROUTE_STEP --> ROUTER
+    VALIDATE --> CREDIT
+    ESTIMATE --> CREDIT
+    HANDLE_RESULT --> CREDIT
+    HANDLE_RESULT --> METRICS
+    EXECUTE --> PROMPT
+    EXECUTE --> HEALTH
+```
+
+---
+
+## 12. Auth Service — Internal Flows
+
+```mermaid
+flowchart TD
+    %% ── STYLE ──
+    classDef flow fill:#06b6d4,color:#fff,stroke:#0891b2,stroke-width:1px
+    classDef security fill:#8b5cf6,color:#fff,stroke:#7c3aed,stroke-width:2px
+    classDef db fill:#6b7280,color:#fff,stroke:#4b5563,stroke-width:2px
+    classDef decision fill:#f59e0b,color:#fff,stroke:#d97706,stroke-width:1px
+    classDef error fill:#ef4444,color:#fff,stroke:#dc2626,stroke-width:1px
+
+    subgraph REGISTER [📝 Registration Flow]
+        REG_START["👤 Guest clicks Register"]:::flow
+        REG_INPUT["✏️ Input: Name · Email · Password · Confirm"]:::flow
+        REG_VALIDATE{"✅ Validate<br/>• Email format (RFC 5322)<br/>• Password ≥ 8 chars<br/>• Contains upper, lower, number<br/>• Breed domain? (HIBP)"}:::decision
+        REG_HASH["🔐 Hash password<br/>Algorithm: Argon2id<br/>Memory: 64MB<br/>Iterations: 3"]:::security
+        REG_CREATE["📦 Create user record"]:::flow
+        REG_TOKEN["🎫 Generate verification token<br/>Expires: 24 hours"]:::flow
+        REG_EMAIL["📧 Send verification email"]:::flow
+        REG_AUDIT["📝 Audit log: user.created"]:::flow
+        REG_OK["✅ 201 Created"]:::flow
+    end
+
+    REG_START --> REG_INPUT --> REG_VALIDATE
+    REG_VALIDATE -->|"❌ Invalid"| REG_ERR["⛔ 400 / 409 Error"]:::error
+    REG_VALIDATE -->|"✅ Valid"| REG_HASH --> REG_CREATE --> REG_TOKEN --> REG_EMAIL --> REG_AUDIT --> REG_OK
+
+    subgraph LOGIN [🔑 Login Flow]
+        LOG_START["👤 User submits credentials"]:::flow
+        LOG_INPUT["✏️ Input: Email · Password"]:::flow
+        LOG_FETCH["🔍 Fetch user + credentials from DB"]:::flow
+        LOG_CHECK{"🔐 Password valid?<br/>Argon2id verify"}:::decision
+        LOG_JWT["🎫 Generate JWT<br/>Algorithm: RS256<br/>Lifetime: 15 minutes<br/>Claims: userId, email, role"]:::security
+        LOG_REFRESH["🔄 Generate refresh token<br/>Lifetime: 30 days<br/>Stored as SHA-256 hash"]:::security
+        LOG_SESSION["💾 Save session record<br/>• Device fingerprint<br/>• IP address<br/>• User agent"]:::flow
+        LOG_OK["✅ Return tokens"]:::flow
+    end
+
+    LOG_START --> LOG_INPUT --> LOG_FETCH --> LOG_CHECK
+    LOG_CHECK -->|"❌ Wrong password"| LOG_FAIL["⛔ 401 Unauthorized<br/>• Count failed attempts<br/>• Lock after N failures (15min)"]:::error
+    LOG_CHECK -->|"✅ Valid"| LOG_JWT --> LOG_REFRESH --> LOG_SESSION --> LOG_OK
+
+    subgraph OAUTH_FLOW [🔑 OAuth 2.0 Flow]
+        OAUTH_START["👤 User clicks Google/GitHub login"]:::flow
+        OAUTH_REDIR["↪️ Redirect to provider<br/>• State param (CSRF)<br/>• PKCE code challenge"]:::security
+        OAUTH_CALLBACK["📡 OAuth callback received"]:::flow
+        OAUTH_VALIDATE{"🔐 Validate:<br/>• State matches?<br/>• PKCE verifier?<br/>• Redirect URI exact?"}:::decision
+        OAUTH_EXCHANGE["🔄 Exchange code for tokens<br/>• Access + Refresh token"]:::flow
+        OAUTH_STORE["🔐 Encrypt tokens (AES-256-GCM)<br/>Store in user_oauth_accounts"]:::security
+        OAUTH_FIND_USER{"👤 User exists?"}:::decision
+        OAUTH_CREATE["✨ Create new user + wallet"]:::flow
+        OAUTH_LINK["🔗 Link OAuth to existing user"]:::flow
+        OAUTH_OK["✅ Return JWT + Refresh"]:::flow
+    end
+
+    OAUTH_START --> OAUTH_REDIR --> OAUTH_CALLBACK --> OAUTH_VALIDATE
+    OAUTH_VALIDATE -->|"❌ Invalid"| OAUTH_ERR["⛔ Redirect with error"]:::error
+    OAUTH_VALIDATE -->|"✅ Valid"| OAUTH_EXCHANGE --> OAUTH_STORE --> OAUTH_FIND_USER
+    OAUTH_FIND_USER -->|"New"| OAUTH_CREATE --> OAUTH_LINK
+    OAUTH_FIND_USER -->|"Existing"| OAUTH_LINK
+    OAUTH_LINK --> OAUTH_OK
+
+    subgraph SESSION_MGMT [🛡️ Session & Token Management]
+        TOKEN_CHECK{"🔍 On each API request:<br/>1. JWT signature valid?<br/>2. Not expired?<br/>3. Session not revoked?<br/>4. User status active?<br/>5. IP range matches? (opt)"}:::decision
+        TOKEN_OK["✅ Proceed to handler"]:::flow
+        TOKEN_REF["🔄 Call /auth/refresh<br/>• Rotate refresh token<br/>• Return new JWT"]:::flow
+        TOKEN_REUSE{"⚠️ Old token reused?<br/>(After rotation)"}:::decision
+        TOKEN_REVOKE["⛔ Revoke ALL sessions<br/>Alert user"]:::error
+
+        PASS_RESET["📧 Forgot Password<br/>• Generate reset token (1 hour)<br/>• Send email<br/>• User sets new password"]:::flow
+        PASS_CHANGE["🔐 Change Password<br/>• Verify old password<br/>• New: Argon2id hash<br/>• Revoke all sessions"]:::security
+    end
+
+    TOKEN_CHECK -->|"✅ All pass"| TOKEN_OK
+    TOKEN_CHECK -->|"⏰ Expired"| TOKEN_REF
+    TOKEN_REF --> TOKEN_OK
+    TOKEN_REF -.-> TOKEN_REUSE
+    TOKEN_REUSE -->|"Yes ⚠️"| TOKEN_REVOKE
+    TOKEN_CHECK -->|"❌ Other failure"| TOKEN_FAIL["⛔ 401 Unauthorized"]:::error
+
+    subgraph RBAC [👑 Role-Based Access Control]
+        RBAC_CHECK{"🔍 Check user role"}:::decision
+        RBAC_GUEST["guest → Public pages only"]:::flow
+        RBAC_USER["user → Own resources only"]:::flow
+        RBAC_ADMIN["admin → Admin panel, all users"]:::flow
+        RBAC_SUPER["super_admin → Full access"]:::flow
+        RBAC_API["api_key → Scoped API access"]:::flow
+    end
+
+    %% DB Tables
+    subgraph AUTH_DB [🗄️ Auth Database Tables]
+        T_USERS[("users<br/>• PK: id (uuid)<br/>• email, username, display_name<br/>• role, is_active<br/>• email_verified_at")]
+        T_CREDENTIALS[("user_credentials<br/>• password_hash<br/>• algorithm (Argon2id)<br/>• last_changed_at")]
+        T_SESSIONS[("user_sessions<br/>• refresh_token_hash<br/>• device_fingerprint<br/>• ip, user_agent<br/>• expires_at, revoked_at")]
+        T_OAUTH[("user_oauth_accounts<br/>• provider, provider_id<br/>• tokens (encrypted)<br/>• scopes")]
+        T_VERIFY[("verification_tokens<br/>• token, type<br/>• expires_at<br/>• used_at")]
+    end
+
+    REG_CREATE --> T_USERS
+    REG_HASH --> T_CREDENTIALS
+    REG_TOKEN --> T_VERIFY
+    LOG_SESSION --> T_SESSIONS
+    OAUTH_STORE --> T_OAUTH
+```
+
+---
+
+## 13. Billing Service — Lifecycle & Ledger
+
+```mermaid
+flowchart TD
+    %% ── STYLE ──
+    classDef state fill:#6366f1,color:#fff,stroke:#4f46e5,stroke-width:2px
+    classDef action fill:#06b6d4,color:#fff,stroke:#0891b2,stroke-width:1px
+    classDef ledger fill:#10b981,color:#fff,stroke:#059669,stroke-width:2px
+    classDef external fill:#ef4444,color:#fff,stroke:#dc2626,stroke-width:2px
+    classDef db fill:#6b7280,color:#fff,stroke:#4b5563,stroke-width:1px
+
+    subgraph SUB_LIFECYCLE [📋 Subscription Lifecycle]
+        TRIAL["🆓 Trial<br/>Free plan with limited credits"]:::state
+        ACTIVE["✅ Active<br/>Paying subscriber"]:::state
+        GRACE["⏳ Grace Period<br/>Payment failed, still active"]:::state
+        PAST_DUE["⚠️ Past Due<br/>N days overdue, features limited"]:::state
+        CANCELLED["❌ Cancelled<br/>End of billing cycle"]:::state
+        EXPIRED["⏰ Expired<br/>No active subscription"]:::state
+        RENEWED["🔄 Renewed<br/>New billing cycle starts"]:::state
+    end
+
+    subgraph SUB_TRANSITIONS [🔄 Subscription State Transitions]
+        TRIAL -->|"Subscribe"| ACTIVE
+        ACTIVE -->|"Payment fails"| GRACE
+        GRACE -->|"Payment retry OK"| ACTIVE
+        GRACE -->|"N days passed"| PAST_DUE
+        PAST_DUE -->|"Payment received"| ACTIVE
+        PAST_DUE -->|"Cancelled"| CANCELLED
+        ACTIVE -->|"User cancels"| CANCELLED
+        CANCELLED -->|"End of period"| EXPIRED
+        ACTIVE -->|"Billing date"| RENEWED
+        RENEWED --> ACTIVE
+        EXPIRED -->|"User resubscribes"| ACTIVE
+        ACTIVE -->|"Upgrade / Downgrade"| ACTIVE
+    end
+
+    subgraph CREDIT_FLOW [💳 Credit Wallet Flow]
+        direction LR
+        WALLET_OPEN["📂 Wallet created<br/>(on user register)"]:::action
+        
+        subgraph CREDIT_SOURCES [Credit Sources]
+            SUB_CREDITS["📅 Subscription allocation<br/>Monthly reset · No rollover"]:::state
+            PURCHASED["🛒 Purchased credits<br/>One-time · Never expire"]:::state
+            BONUS_CREDITS["🎁 Bonus credits<br/>Signup · Referral · Promo"]:::state
+            ADMIN_CREDITS["🔧 Admin adjustment"]:::action
+        end
+
+        subgraph CREDIT_CONSUMPTION [Consumption Priority]
+            PRIORITY["1️⃣ Subscription (expiring)<br/>2️⃣ Subscription (current)<br/>3️⃣ Bonus (expiring)<br/>4️⃣ Purchased (never)"]:::state
+        end
+
+        subgraph CREDIT_RULES [Rules]
+            DEDUCT_OK["✅ Deduct on COMPLETED"]:::action
+            DEDUCT_PARTIAL["✅ Deduct on PARTIAL"]:::action
+            REFUND_FAIL["🔙 Refund on FAILED (after retries)"]:::action
+            REFUND_CANCEL["🔙 Refund on CANCELLED (before exec)"]:::action
+            NO_DEDUCT_CACHE["💾 No deduction on CACHE HIT"]:::action
+        end
+    end
+
+    subgraph DOUBLE_ENTRY [📒 Double-Entry Ledger System]
+        LEDGER_WALLET[("wallet<br/>• current_balance<br/>• subscription_credits<br/>• purchased_credits<br/>• bonus_credits")]:::db
+
+        LEDGER_TX[("wallet_transactions<br/>• id · wallet_id · type<br/>• amount · balance_before<br/>• balance_after<br/>• reference_id<br/>• description<br/>• I M M U T A B L E")]:::db
+
+        LEDGER_AUDIT[("audit_logs<br/>• actor · action · target<br/>• before · after<br/>• ip_address<br/>• created_at")]:::db
+    end
+
+    subgraph PAYMENT_INT [💳 Payment Integration]
+        STRIPE["Stripe<br/>• Primary (MVP)<br/>• Payment Intents<br/>• Subscriptions API"]:::external
+        MIDTRANS["Midtrans<br/>• Indonesia market<br/>• Bank transfer · CC"]:::external
+        XENDIT["Xendit<br/>• Indonesia market<br/>• E-wallet · Retail"]:::external
+        PAYPAL["PayPal<br/>• Future integration"]:::external
+
+        WEBHOOK["🔌 Webhook Handler<br/>• Verify signature<br/>• Update subscription<br/>• Create invoice<br/>• Add credits"]:::action
+    end
+
+    subgraph INVOICE_SYSTEM [🧾 Invoice System]
+        INVOICE[("invoices<br/>• invoice_number<br/>• user_id · status<br/>• subtotal · tax · total<br/>• paid_at")]:::db
+        INVOICE_ITEM[("invoice_items<br/>• description<br/>• quantity · unit_price<br/>• amount")]:::db
+    end
+
+    subgraph COUPON [🎫 Coupon / Promo]
+        COUPON_ENTRY[("coupons<br/>• code · type<br/>• value · max_uses<br/>• valid_from · until<br/>• used_count")]:::db
+    end
+
+    %% Connections
+    TRIAL --> ACTIVE
+    ACTIVE --> SUB_CREDITS
+    PURCHASED --> PRIORITY
+    SUB_CREDITS --> PRIORITY
+    BONUS_CREDITS --> PRIORITY
+    PRIORITY --> LEDGER_WALLET
+    LEDGER_WALLET --> LEDGER_TX
+    LEDGER_TX --> LEDGER_AUDIT
+
+    DEDUCT_OK --> LEDGER_TX
+    REFUND_FAIL --> LEDGER_TX
+    REFUND_CANCEL --> LEDGER_TX
+    NO_DEDUCT_CACHE -.->|"Skip"| LEDGER_WALLET
+
+    ACTIVE --> PAYMENT_INT
+    PAYMENT_INT --> WEBHOOK
+    WEBHOOK --> INVOICE_SYSTEM
+    WEBHOOK --> SUB_LIFECYCLE
+    WEBHOOK --> CREDIT_FLOW
+
+    COUPON --> PAYMENT_INT
+```
+
+---
+
+## 14. Render & Publish Service — State Machines
+
+```mermaid
+flowchart TD
+    %% ── STYLE ──
+    classDef state fill:#6366f1,color:#fff,stroke:#4f46e5,stroke-width:2px
+    classDef action fill:#06b6d4,color:#fff,stroke:#0891b2,stroke-width:1px
+    classDef decision fill:#f59e0b,color:#fff,stroke:#d97706,stroke-width:1px
+    classDef done fill:#10b981,color:#fff,stroke:#059669,stroke-width:2px
+    classDef error fill:#ef4444,color:#fff,stroke:#dc2626,stroke-width:2px
+    classDef hardware fill:#8b5cf6,color:#fff,stroke:#7c3aed,stroke-width:2px
+
+    subgraph RENDER_PIPELINE [🎞️ Render Pipeline State Machine]
+        R_CREATED["🆕 Created<br/>Job record created"]:::state
+        R_QUEUED["📨 Queued<br/>Added to Render Queue"]:::state
+        R_ENCODING["🎥 Encoding<br/>FFmpeg running"]:::state
+        R_MUXING["📦 Muxing<br/>Video + Audio + Subs"]:::state
+        R_UPLOADING["☁️ Uploading<br/>To object storage"]:::state
+        R_COMPLETED["✅ Completed<br/>Ready for download"]:::done
+        R_FAILED["❌ Failed<br/>Error occurred"]:::error
+    end
+
+    subgraph RENDER_TRANSITIONS [🔄 Render State Transitions]
+        R_CREATED --> R_QUEUED
+        R_QUEUED --> R_ENCODING
+        R_ENCODING -->|"GPU failed"| GPU_FALLBACK{"🔄 GPU Fallback?"}:::decision
+        GPU_FALLBACK -->|"Yes"| R_ENCODING
+        GPU_FALLBACK -->|"No"| R_FAILED
+        R_ENCODING --> R_MUXING
+        R_MUXING --> R_UPLOADING
+        R_UPLOADING --> R_COMPLETED
+        R_ENCODING -->|"Timeout"| R_FAILED
+        R_MUXING -->|"Error"| R_FAILED
+        R_UPLOADING -->|"Retry (max 3)"| R_UPLOADING
+        R_FAILED -->|"Re-queue"| R_QUEUED
+    end
+
+    subgraph GPU_ENCODING [🎮 Hardware Encoding Selection]
+        HW_DETECT["🔍 Detect Hardware"]:::hardware
+        HW_NVIDIA["NVIDIA NVENC<br/>h264_nvenc · hevc_nvenc<br/>RTX 40xx: AV1"]:::hardware
+        HW_INTEL["Intel QuickSync (QSV)<br/>h264_qsv · hevc_qsv<br/>iGPU 11th+"]:::hardware
+        HW_AMD["AMD AMF<br/>h264_amf · hevc_amf<br/>RX 6000+: AV1"]:::hardware
+        HW_CPU["CPU Software<br/>libx264 · libx265 · libsvtav1<br/>(Fallback)"]:::hardware
+    end
+
+    HW_DETECT --> HW_NVIDIA
+    HW_DETECT --> HW_INTEL
+    HW_DETECT --> HW_AMD
+    HW_DETECT --> HW_CPU
+    HW_DETECT -.-> R_ENCODING
+    HW_NVIDIA -.-> R_ENCODING
+    HW_INTEL -.-> R_ENCODING
+    HW_AMD -.-> R_ENCODING
+    HW_CPU -.-> R_ENCODING
+
+    subgraph LOCAL_VS_CLOUD [💻 Local vs Cloud Render]
+        RENDER_MODE{"📍 Render Mode"}:::decision
+        LOCAL["🖥️ Local Render<br/>• FFmpeg on user machine<br/>• GPU/CPU encoding<br/>• Desktop app process<br/>• Progress via IPC → WS"]:::action
+        CLOUD["☁️ Cloud Render<br/>• Worker picks up job<br/>• Server-side FFmpeg<br/>• GPU instance<br/>• Progress via WebSocket"]:::action
+    end
+
+    RENDER_MODE -->|"Desktop user"| LOCAL
+    RENDER_MODE -->|"SaaS user (Pro+)"| CLOUD
+    LOCAL --> R_ENCODING
+    CLOUD --> R_ENCODING
+
+    subgraph PUBLISH_FLOW [📢 Publishing Flow]
+        P_DRAFT["📝 Draft<br/>Post created, not ready"]:::state
+        P_SCHEDULED["📅 Scheduled<br/>Timestamp set"]:::state
+        P_PUBLISHING["📤 Publishing<br/>Uploading to platform"]:::state
+        P_PUBLISHED["✅ Published<br/>Live on platform"]:::done
+        P_FAILED["❌ Failed<br/>API error / Auth error"]:::error
+        P_RETRY["🔄 Retry<br/>Refreshing OAuth + retry"]:::state
+    end
+
+    subgraph PUBLISH_TRANSITIONS [🔄 Publish State Transitions]
+        P_DRAFT --> P_SCHEDULED
+        P_DRAFT --> P_PUBLISHING
+        P_SCHEDULED -->|"Time reached"| P_PUBLISHING
+        P_PUBLISHING --> P_PUBLISHED
+        P_PUBLISHING -->|"OAuth expired"| OAUTH_REFRESH["🔄 Refresh OAuth Token"]:::action
+        OAUTH_REFRESH --> P_PUBLISHING
+        P_PUBLISHING -->|"API error"| P_FAILED
+        P_FAILED -->|"Retry"| P_RETRY
+        P_RETRY --> P_PUBLISHING
+    end
+
+    subgraph PUBLISH_OPS [📡 Publish Operations]
+        YOUTUBE["YouTube API<br/>• Upload video<br/>• Set title/desc/tags<br/>• Set visibility"]:::action
+        TIKTOK["TikTok API<br/>• Upload video<br/>• Caption · Hashtags<br/>• Schedule post"]:::action
+        INSTAGRAM["Instagram Graph API<br/>• Reels upload<br/>• Cover image<br/>• Caption"]:::action
+    end
+
+    P_PUBLISHING --> YOUTUBE
+    P_PUBLISHING --> TIKTOK
+    P_PUBLISHING --> INSTAGRAM
+```
+
+---
+
+## 15. Admin Panel — Modules & Data Flow
+
+```mermaid
+flowchart TD
+    %% ── STYLE ──
+    classDef module fill:#6366f1,color:#fff,stroke:#4f46e5,stroke-width:2px
+    classDef action fill:#06b6d4,color:#fff,stroke:#0891b2,stroke-width:1px
+    classDef db fill:#6b7280,color:#fff,stroke:#4b5563,stroke-width:1px
+    classDef security fill:#ef4444,color:#fff,stroke:#dc2626,stroke-width:2px
+    classDef config fill:#8b5cf6,color:#fff,stroke:#7c3aed,stroke-width:2px
+
+    subgraph ADMIN_ROLES [👑 Admin Roles & Access]
+        SUPER_ADMIN["super_admin<br/>Full access + manage admins"]:::security
+        ADMIN["admin<br/>All modules except admin mgmt"]:::security
+        AI_ADMIN["ai_admin<br/>Providers, models, prompts"]:::security
+        BILLING_ADMIN["billing_admin<br/>Billing, payments, refunds"]:::security
+        SUPPORT_ADMIN["support_admin<br/>Users, view-only analytics"]:::security
+        VIEWER["viewer<br/>Read-only all modules"]:::security
+    end
+
+    subgraph USER_MODULE [👥 User Management Module]
+        USER_LIST["User List<br/>• Search · Filter · Export CSV<br/>• Status · Plan · Credits"]:::module
+        USER_DETAIL["User Detail<br/>• Profile · Subscription<br/>• AI Usage · Login History"]:::module
+        USER_ACTIONS["User Actions<br/>• Suspend / Activate<br/>• Delete (soft)<br/>• Adjust Credits<br/>• Reset Password<br/>• Revoke Sessions<br/>• Impersonate (logged)"]:::action
+    end
+
+    USER_MODULE --> USER_DB[("users<br/>user_sessions<br/>wallet<br/>wallet_transactions")]:::db
+
+    subgraph AI_MODULE [🤖 AI Management Module]
+        PROVIDER_LIST["AI Provider List<br/>• Status · Models · Jobs/Day<br/>• Avg Latency"]:::module
+        PROVIDER_CONFIG["Provider Config<br/>• API key (encrypted)<br/>• Capabilities · Rate limits<br/>• Priority · Status"]:::config
+        MODEL_MGMT["Model Management<br/>• Pricing per token<br/>• Credit multiplier<br/>• Enable/disable"]:::module
+        ROUTING_RULES["Routing Rules<br/>• Job type → Provider<br/>• Fallback chain<br/>• Priority order"]:::module
+        HEALTH_MON["Health Monitor<br/>• Auto-refresh 30s<br/>• Latency · Error Rate<br/>• Uptime graph<br/>• Alert on status change"]:::module
+        PROMPT_MGMT["Prompt Management<br/>• Code · Category · Version<br/>• Immutable once published<br/>• A/B testing · Rollback<br/>• Version comparison"]:::module
+    end
+
+    AI_MODULE --> AI_DB[("ai_providers<br/>ai_models<br/>ai_routing_rules<br/>prompts<br/>prompt_versions<br/>ai_jobs")]:::db
+
+    subgraph BILLING_MODULE [💰 Billing Management Module]
+        TXN_LIST["Transaction List<br/>• Date · User · Type<br/>• Amount · Method · Status<br/>• Date range filter"]:::module
+        PAYMENTS["Payment Management<br/>• View all payments<br/>• Manual capture<br/>• Webhook logs"]:::module
+        REFUNDS["Refund Management<br/>• Full / partial refund<br/>• Reason required<br/>• Approval flow (>$100)"]:::action
+        INVOICES["Invoice Management<br/>• Generate · View · Resend<br/>• Mark paid manually"]:::module
+        COUPONS["Coupon Management<br/>• Code · Type (% / $)<br/>• Valid dates · Max uses<br/>• Usage tracking"]:::module
+        REVENUE["Revenue Reports<br/>• MRR / ARR<br/>• Revenue by plan<br/>• Churn analysis<br/>• Export CSV/PDF"]:::module
+    end
+
+    BILLING_MODULE --> BILL_DB[("subscriptions<br/>invoices<br/>invoice_items<br/>coupons<br/>payment_history")]:::db
+
+    subgraph SYSTEM_MODULE [⚙️ System Configuration Module]
+        APP_CONFIG["Application Config<br/>• App name · Support email<br/>• Max upload size<br/>• Chunk size · Language<br/>• Session timeout"]:::config
+        AI_CONFIG["AI Settings<br/>• Default provider mode<br/>• Max retries · Backoff<br/>• Cache TTL<br/>• Health check interval"]:::config
+        CREDIT_COST["Credit Costs<br/>• Per-operation pricing<br/>• All values configurable<br/>• Takes effect immediately"]:::config
+        FEATURE_FLAGS["Feature Flags<br/>• boolean / percentage / user_list<br/>• Gradual rollout<br/>• Emergency kill switch<br/>• No deploy needed"]:::module
+    end
+
+    SYSTEM_MODULE --> CONFIG_DB[("app_config<br/>feature_flags<br/>credit_costs")]:::db
+
+    subgraph ANALYTICS_MODULE [📊 Analytics & Reports Module]
+        PLATFORM_DASH["Platform Dashboard<br/>• Users · MRR · AI Jobs · GPU Hrs<br/>• +X% growth indicators"]:::module
+        USER_REPORTS["User Reports<br/>• DAU/MAU · Retention<br/>• Signup funnel · Conversion<br/>• Churn analysis"]:::module
+        AI_REPORTS["AI Reports<br/>• Jobs by type · Provider cost<br/>• Avg latency · Error rate<br/>• Cache hit rate"]:::module
+        REVENUE_REPORTS["Revenue Reports<br/>• MRR/ARR · By plan<br/>• Credit purchase trends<br/>• Payment success rate"]:::module
+        SYSTEM_REPORTS["System Reports<br/>• API response times<br/>• Queue depth · Worker util<br/>• Storage · DB performance"]:::module
+    end
+
+    ANALYTICS_MODULE --> ANA_DB[("analytics_daily<br/>analytics_ai_usage<br/>analytics_revenue<br/>analytics_events")]:::db
+
+    subgraph AUDIT_LOG [📝 Audit & Security]
+        AUDIT_RULES["ALL admin actions logged:<br/>• Who (admin user ID)<br/>• What (action, before/after)<br/>• When (timestamp)<br/>• Where (IP, user agent)<br/>• Request ID"]:::security
+        AUDIT_TABLE[("audit_logs<br/>• IMMUTABLE<br/>• Admin cannot delete<br/>• Retention: 1 year<br/>• Searchable · Exportable")]:::db
+    end
+
+    subgraph SIDEBAR [📋 Admin Sidebar Navigation]
+        DASH["📊 Overview<br/>Dashboard · System Health"]
+        USERS["👥 Users<br/>All Users · Subscriptions<br/>Sessions · Security Events"]
+        AI["🤖 AI Management<br/>Providers · Models · Routing<br/>Prompts · Experiments"]
+        BILLING["💰 Billing<br/>Transactions · Payments<br/>Refunds · Invoices · Coupons"]
+        ANALYTICS["📈 Analytics<br/>Platform · AI Usage<br/>Cost · Engagement"]
+        SYSTEM["⚙️ System<br/>Configuration · Feature Flags<br/>API Keys · Audit Logs"]
+    end
+
+    SIDEBAR --> DASH
+    SIDEBAR --> USERS
+    SIDEBAR --> AI
+    SIDEBAR --> BILLING
+    SIDEBAR --> ANALYTICS
+    SIDEBAR --> SYSTEM
+
+    USERS --> USER_MODULE
+    AI --> AI_MODULE
+    BILLING --> BILLING_MODULE
+    SYSTEM --> SYSTEM_MODULE
+    ANALYTICS --> ANALYTICS_MODULE
+
+    USER_MODULE --> AUDIT_LOG
+    AI_MODULE --> AUDIT_LOG
+    BILLING_MODULE --> AUDIT_LOG
+    SYSTEM_MODULE --> AUDIT_LOG
+    ANALYTICS_MODULE --> AUDIT_LOG
+    AUDIT_LOG --> AUDIT_TABLE
+```
+
+---
+
 ## 🔗 Referensi
 
 | Dokumen | Link |
 |---------|------|
+| PRD | [01-PRD.md](01-PRD.md) |
+| SRS | [02-SRS.md](02-SRS.md) |
+| ERD & DB Schema | [03-ERD.md](03-ERD.md), [04-DATABASE-SCHEMA.md](04-DATABASE-SCHEMA.md) |
 | System Architecture | [05-SYSTEM-ARCHITECTURE.md](05-SYSTEM-ARCHITECTURE.md) |
 | AI Pipeline | [06-AI-PIPELINE.md](06-AI-PIPELINE.md) |
 | REST API | [07-REST-API.md](07-REST-API.md) |
 | Desktop Architecture | [08-DESKTOP-ARCHITECTURE.md](08-DESKTOP-ARCHITECTURE.md) |
 | SaaS Architecture | [09-SAAS-ARCHITECTURE.md](09-SAAS-ARCHITECTURE.md) |
+| UI/UX | [10-UI-UX.md](10-UI-UX.md) |
+| Admin Panel | [11-ADMIN-PANEL.md](11-ADMIN-PANEL.md) |
 | Billing & Credit | [12-BILLING-CREDIT.md](12-BILLING-CREDIT.md) |
 | Security | [13-SECURITY.md](13-SECURITY.md) |
 | Deployment | [14-DEPLOYMENT.md](14-DEPLOYMENT.md) |
-| ERD & DB Schema | [03-ERD.md](03-ERD.md), [04-DATABASE-SCHEMA.md](04-DATABASE-SCHEMA.md) |
+| Roadmap | [15-ROADMAP.md](15-ROADMAP.md) |
+| Agents & Prompts | [16-AGENTS-PROMPTS.md](16-AGENTS-PROMPTS.md) |
