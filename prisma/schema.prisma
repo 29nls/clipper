@@ -81,5 +81,54 @@ model AIJob {
 }
 
 // ═══════════════════════════════════════════════
+// A/B Experiment Models (Phase 3: Growth Experiments)
+// ═══════════════════════════════════════════════
+
+model A/BExperiment {
+  id          String     @id @default(uuid())
+  key         String     @unique   // e.g., "title_generator_v3", "thumbnail_style_a"
+  name        String
+  description String?
+  
+  // Experiment configuration
+  status      String     // "draft", "running", "paused", "completed", "archived"
+  strategy    String     // "percentage", "user_list", "feature_flag"
+  
+  // Traffic split
+  percentage  Float?     // 0-100 for percentage-based
+  userIds     String[]?  // for user_list strategy
+  
+  // Experiment metadata
+  metric      String     // primary success metric
+  variantA    String     // e.g., "prompt_v3"
+  variantB    String     // e.g., "prompt_v4"
+  
+  // Results tracking
+  sampleSize  Integer    // number of users participated
+  conversions Integer    // conversions for primary metric
+  startedAt   DateTime
+  completedAt DateTime?
+  
+  // Audit
+  createdBy   String
+  createdAt   DateTime @default(now)
+  updatedAt   DateTime @updatedAt
+  
+  // Indexes
+  @@ index([key])
+}
+
+model A/BExperimentUser {
+  id         String @id @default(uuid())
+  experiment String     // reference to A/BExperiment.key
+  userId     String    // who is in this experiment
+  variant    String    // "A" or "B"
+  assignedAt DateTime   // when assigned
+  converted   Boolean   // did they convert on the metric?
+  
+  unique([experiment, userId])
+}
+
+// ═══════════════════════════════════════════════
 // Additional models from original schema would follow
 // ═══════════════════════════════════════════════
