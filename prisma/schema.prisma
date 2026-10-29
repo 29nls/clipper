@@ -1,0 +1,85 @@
+// Prisma Schema for Clipper Web SaaS
+// Extended with Better Auth user fields
+
+generator client {
+  provider "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════
+// Extended User Model (Better Auth Integration)
+// ═══════════════════════════════════════════════
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique @email
+  emailVerified   DateTime?
+  password        String
+
+  // Better Auth extended fields
+  betterAuthUserId String     @unique @map("better_auth_user_id")
+
+  // Extended user profile fields
+  fullName        String?    @db.VarChar(191)
+  company         String?    @db.VarChar(191)
+  plan            Enum       ["free", "starter", "pro", "business"] @default("free") @db.VarChar(32)
+  credits         Integer    @default(100)
+  subscriptionId  String?    @db.VarChar(191)
+  lastLoginAt     DateTime?
+
+  // Timestamps
+  createdAt       DateTime   @default(now)
+  updatedAt       DateTime   @updatedAt
+
+  // Relations
+  clips           Clip[]
+  aiJobs          AIJob[]
+  // ... existing relations
+}
+
+// ═══════════════════════════════════════════════
+// Core Models (existing, referenced by User)
+// ═══════════════════════════════════════════════
+
+model Clip {
+  id              String     @id @default(uuid())
+  user            User       @relation(fields: [userId], references: [id])
+  userId          String
+  title           String
+  description     String?
+  sourceVideo     String     // video ID or path
+  duration        Integer    // in seconds
+  aspectRatio     String     // e.g., "9:16", "16:9"
+  viralScore      Integer    // 0-100
+  status          String     // "processing", "completed", "failed"
+  creditsConsumed Integer    // how many credits used
+  createdAt       DateTime   @default(now)
+  updatedAt       DateTime   @updatedAt
+
+  @@ index([userId])
+  @@ index([status])
+}
+
+model AIJob {
+  id              String     @id @default(uuid())
+  user            User       @relation(fields: [userId], references: [id])
+  userId          String
+  jobType         String     // "title_generation", "subtitle", "thumbnail", etc.
+  status          String     // "pending", "processing", "completed", "failed"
+  inputParameters Json?      // flexible input for AI pipeline
+  outputResult    Json?      // AI output result
+  creditsCost     Integer    // credits consumed
+  completedAt     DateTime?
+  createdAt       DateTime   @default(now)
+
+  @@ index([userId])
+  @@ index([status])
+}
+
+// ═══════════════════════════════════════════════
+// Additional models from original schema would follow
+// ═══════════════════════════════════════════════
